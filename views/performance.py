@@ -51,36 +51,25 @@ ui.scorecard_row(kpis, prev_kpis,
                  ["Coût", "Clics", "CPC", "Conversions", "Revenus",
                   "Taux de conversion", "Panier Moyen", "ROAS"])
 
-# Deux tableaux façon Looker : par type de campagne, puis par région
+# Deux tableaux triables (clic sur l'en-tête) : par type de campagne, par zone
 ui.section_band("Performance par type de campagne")
+st.caption("💡 Clique sur un en-tête de colonne pour trier "
+           "(1 clic = croissant, 2 clics = décroissant).")
 
-# Filtre + tri du tableau des campagnes
-_SORT_KEYS = {"Revenus": "revenue", "Coût": "cost", "Clics": "clicks",
-              "Conversions": "conversions", "ROAS": "ROAS", "CPC": "CPC",
-              "Panier Moyen": "AOV"}
+# Filtre des types de campagne (facultatif)
 all_types = sorted(current["campaign_type"].unique())
-fc1, fc2, fc3 = st.columns([2, 1, 1])
-selected = fc1.multiselect("Filtrer les types de campagne", all_types,
-                           default=all_types, key="camp_filter")
-sort_label = fc2.selectbox("Trier par", list(_SORT_KEYS), key="camp_sort")
-ascending = fc3.selectbox("Ordre", ["Décroissant", "Croissant"],
-                          key="camp_order") == "Croissant"
-
+selected = st.multiselect("Filtrer les types de campagne", all_types,
+                          default=all_types, key="camp_filter")
 sel = selected or all_types
 sub = current[current["campaign_type"].isin(sel)]
 sub_prev = (prev_df[prev_df["campaign_type"].isin(sel)]
             if prev_df is not None else None)
-camp_table = analytics.comparison_table(sub, sub_prev, "campaign_type")
-# Tri des lignes (la ligne « Total général » reste en bas)
-_dimcol = camp_table.columns[0]
-_body = camp_table[camp_table[_dimcol] != "Total général"].sort_values(
-    _SORT_KEYS[sort_label], ascending=ascending)
-_total = camp_table[camp_table[_dimcol] == "Total général"]
-ui.looker_table(pd.concat([_body, _total], ignore_index=True), "Type de campagne")
+ui.interactive_table(analytics.comparison_table(sub, sub_prev, "campaign_type"),
+                     "Type de campagne")
 
 ui.section_band("Performance par zone")
 ui.breakdown_tiles(current, prev_df, "zone")
-ui.looker_table(analytics.comparison_table(current, prev_df, "zone"), "Zone")
+ui.interactive_table(analytics.comparison_table(current, prev_df, "zone"), "Zone")
 
 # Donuts de répartition (par type de campagne)
 agg = analytics.aggregate_by(current, "campaign_type")

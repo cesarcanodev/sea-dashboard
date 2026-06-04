@@ -49,8 +49,9 @@ else:
 
 # Classement par rentabilité
 ui.section_band("Classement par rentabilité (ROAS)")
-ui.looker_table(analytics.comparison_table(current, prev_df, "campaign_type"),
-                "Type de campagne")
+st.caption("💡 Clique sur l'en-tête « ROAS » pour classer du plus au moins rentable.")
+ui.interactive_table(analytics.comparison_table(current, prev_df, "campaign_type"),
+                     "Type de campagne")
 
 # Recommandations
 ui.section_band("Recommandations actionnables")
@@ -61,4 +62,4 @@ for rc in analytics.build_recommendations(current, prev_df):
 
 # Détail par pays
 ui.section_band("Détail par pays")
-ui.looker_table(analytics.comparison_table(current, prev_df, "country"), "Pays")
+ui.interactive_table(analytics.comparison_table(current, prev_df, "country"), "Pays")

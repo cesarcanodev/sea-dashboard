@@ -415,6 +415,69 @@ def looker_table(table: pd.DataFrame, dim_label: str) -> None:
     )
 
 
+def _fmt_for(label):
+    """Renvoie le formateur d'affichage d'une métrique."""
+    if label in ("Coût", "Revenus", "Panier Moyen"):
+        return fmt_eur
+    if label == "CPC":
+        return fmt_cpc
+    if label == "ROAS":
+        return fmt_roas
+    if label == "CR":
+        return fmt_pct
+    return fmt_int
+
+
+def interactive_table(table: pd.DataFrame, dim_label: str) -> None:
+    """Tableau triable par clic sur les en-têtes (façon Excel / Looker).
+
+    Chaque métrique a sa colonne (valeur) + une colonne « Δ % » colorée.
+    Un clic sur l'en-tête trie croissant, deux clics décroissant.
+    La ligne « Total général » est affichée à part (non triable).
+    """
+    dim_col = table.columns[0]
+    body = table[table[dim_col] != "Total général"].reset_index(drop=True)
+    total = table[table[dim_col] == "Total général"]
+
+    data = {dim_label: body[dim_col].astype(str)}
+    fmt_map, delta_cols = {}, []
+    for lbl, key in analytics.TABLE_METRICS:
+        data[lbl] = pd.to_numeric(body[key], errors="coerce")
+        dcol = f"Δ {lbl}"
+        data[dcol] = pd.to_numeric(body[f"{key}_delta"], errors="coerce")
+        delta_cols.append(dcol)
+        f = _fmt_for(lbl)
+        fmt_map[lbl] = (lambda fn: lambda v: fn(v) if pd.notna(v) else "—")(f)
+        fmt_map[dcol] = lambda v: f"{v:+.0f}%" if pd.notna(v) else "—"
+    disp = pd.DataFrame(data)
+
+    def _color(v):
+        if pd.isna(v):
+            return "color:#9aa7b4"
+        c = THEME["positive"] if v >= 0 else THEME["negative"]
+        return f"color:{c}; font-weight:600"
+
+    styler = (disp.style
+              .format(fmt_map)
+              .map(_color, subset=delta_cols)
+              .set_properties(**{"font-size": "13px"}))
+    height = min(len(disp) + 1, 18) * 35 + 38
+    st.dataframe(styler, use_container_width=True, hide_index=True, height=height)
+
+    if not total.empty:
+        r = total.iloc[0]
+        parts = []
+        for lbl, key in analytics.TABLE_METRICS:
+            val = _fmt_for(lbl)(r[key]) if pd.notna(r[key]) else "—"
+            parts.append(f"{lbl}&nbsp;<b>{val}</b>")
+        st.markdown(
+            f'<div style="background:#E7F0FE;border-radius:6px;padding:6px 12px;'
+            f'font-size:13px;color:{THEME["text"]}">🧮 <b>Total général</b> — '
+            + " · ".join(parts) + "</div>",
+            unsafe_allow_html=True,
+        )
+
+
 def insight_card(level: str, title: str, detail: str) -> None:
     st.markdown(
         f'<div class="card lv-{level}"><div class="card-title">{title}</div>'
