@@ -10,6 +10,8 @@ moyennés. Ils sont recalculés sur les TOTAUX après agrégation :
 from __future__ import annotations
 
 import datetime as dt
+import math
+import re
 
 import pandas as pd
 
@@ -181,8 +183,85 @@ def kpi_deltas(current, previous) -> dict:
     return out
 
 
+# --------------------------------------------------------------------------- #
+# Lecture « senior » : classification des leviers, nomenclatures, drivers
+# --------------------------------------------------------------------------- #
+# Tokens de période commerciale (soldes, ventes privées, temps forts).
+_SALES_TOKENS = ("sales", "sale", "soldes", "solde", "promo", "promotion",
+                 "black friday", "blackfriday", "cyber", "outlet", "destockage",
+                 "déstockage", "ventes privees", "ventes privées", "vente privee",
+                 "private sale")
+_DEDICATED_TOKENS = ("dedie", "dédié", "dedicated", "dédiée", "dedie", "drop",
+                     "launch", "lancement", "capsule", "collab", "teaser")
+
+
+def _eur(v: float) -> str:
+    return f"{v:,.0f}".replace(",", " ") + " €"
+
+
+def _is_brand_label(label: str) -> bool:
+    """True pour les leviers de marque (Pure Brand, Branded, Brex, Search Brand).
+    « Brand Other » est un levier hors-marque (générique) → False."""
+    l = str(label).lower()
+    if "other" in l:
+        return False
+    return ("brand" in l) or ("brex" in l) or ("marque" in l)
+
+
+def _name_has(series: pd.Series, tokens) -> pd.Series:
+    pat = "|".join(re.escape(t) for t in tokens)
+    return series.astype(str).str.lower().str.contains(pat, regex=True, na=False)
+
+
+def split_brand(df: pd.DataFrame):
+    """Renvoie (kpis_marque, kpis_hors_marque) d'après le type de campagne."""
+    if df is None or df.empty:
+        return None, None
+    is_b = df["campaign_type"].map(_is_brand_label)
+    return compute_kpis(df[is_b]), compute_kpis(df[~is_b.values])
+
+
+def sales_context(df: pd.DataFrame):
+    """Part de budget sur des campagnes Sales/Soldes (via le nom complet)."""
+    if df is None or df.empty or "campaign_name" not in df.columns:
+        return None
+    mask = _name_has(df["campaign_name"], _SALES_TOKENS)
+    if not mask.any():
+        return None
+    k = compute_kpis(df[mask.values])
+    return {"share": _safe_div(df.loc[mask.values, "cost"].sum(), df["cost"].sum()),
+            "roas": k["ROAS"], "aov": k["Panier Moyen"],
+            "revenue": k["Revenus"], "cost": k["Coût"]}
+
+
+def roas_drivers(current, previous):
+    """Décompose la variation du ROAS en contributions CR / panier / CPC.
+
+    ROAS = (CR × AOV) / CPC. On renvoie les %Δ de chaque facteur et le driver
+    dominant (en log-amplitude), pour une lecture « cause → effet » senior.
+    """
+    if previous is None or previous.empty:
+        return None
+    c, p = compute_kpis(current), compute_kpis(previous)
+    keys = ("ROAS", "Taux de conversion", "Panier Moyen", "CPC", "Clics",
+            "Revenus", "Conversions")
+    out = {key: (((c[key] - p[key]) / p[key] * 100) if p[key] else None)
+           for key in keys}
+    contribs = {}
+    for key, sign in (("Taux de conversion", 1), ("Panier Moyen", 1), ("CPC", -1)):
+        if p[key] > 0 and c[key] > 0:
+            contribs[key] = sign * math.log(c[key] / p[key])
+    out["dominant"] = (max(contribs, key=lambda x: abs(contribs[x]))
+                       if contribs else None)
+    return out
+
+
+_DRIVER_LABEL = {"Taux de conversion": "le taux de conversion",
+                 "Panier Moyen": "le panier moyen", "CPC": "le CPC"}
+
+
 def build_insights(current, previous=None) -> list[dict]:
-    """Génère des constats automatiques (analyse) à partir des données.
+    """Constats automatiques — lecture niveau consultant senior Google Ads.
 
     Chaque insight : {level: 'good'|'warn'|'bad'|'info', title, detail}.
     """
@@ -191,68 +270,95 @@ def build_insights(current, previous=None) -> list[dict]:
         return insights
 
     k = compute_kpis(current)
-    by_camp = aggregate_by(current, "campaign_type")
-    by_country = aggregate_by(current, "country")
-
-    # 1. ROAS global
     roas = k["ROAS"]
-    if roas >= 4:
-        insights.append(dict(level="good", title=f"ROAS global solide ({roas:.2f}x)",
-            detail="Le retour sur dépense publicitaire est sain : "
-                   "chaque euro investi génère "
-                   f"{roas:.2f} € de revenus."))
-    elif roas >= 2:
-        insights.append(dict(level="warn", title=f"ROAS global moyen ({roas:.2f}x)",
-            detail="Le ROAS est correct mais améliorable. Concentrez le budget "
-                   "sur les segments les plus rentables."))
+    by_camp = aggregate_by(current, "campaign_type")
+    zone_dim = "zone" if "zone" in current.columns else "country"
+    by_zone = aggregate_by(current, zone_dim)
+
+    # 1. Dépendance à la marque (lecture clé d'un compte retail/luxe)
+    bk, nbk = split_brand(current)
+    if bk and nbk and bk["Coût"] > 0 and nbk["Coût"] > 0:
+        br = _safe_div(bk["Revenus"], k["Revenus"]) * 100
+        bc = _safe_div(bk["Coût"], k["Coût"]) * 100
+        insights.append(dict(level="info",
+            title=f"ROAS {roas:.2f}x — marque {bk['ROAS']:.1f}x / hors-marque "
+                  f"{nbk['ROAS']:.1f}x",
+            detail=(f"La marque pèse {br:.0f}% du CA pour {bc:.0f}% du coût : elle "
+                    "capte une demande existante et tire le ROAS global vers le "
+                    f"haut. L'acquisition réelle se joue hors-marque (ROAS "
+                    f"{nbk['ROAS']:.2f}x, {_eur(nbk['Coût'])} investis) — c'est "
+                    "le levier à challenger en priorité.")))
     else:
-        insights.append(dict(level="bad", title=f"ROAS global faible ({roas:.2f}x)",
-            detail="La rentabilité est sous le seuil de 2x. Revoyez le ciblage, "
-                   "les enchères et les pages de destination."))
+        lvl = "good" if roas >= 4 else ("warn" if roas >= 2 else "bad")
+        insights.append(dict(level=lvl, title=f"ROAS global {roas:.2f}x",
+            detail=f"Chaque euro investi génère {roas:.2f} € de CA "
+                   f"({_eur(k['Coût'])} de coût pour {_eur(k['Revenus'])})."))
 
-    # 2. Évolution vs comparaison
+    # 2. Décomposition de la variation du ROAS (driver principal)
     if previous is not None and not previous.empty:
-        d = kpi_deltas(current, previous)
-        for key, kw in (("Revenus", "des revenus"), ("ROAS", "du ROAS"),
-                        ("CPC", "du CPC")):
-            dv = d.get(key)
-            if dv is None:
-                continue
-            improving = dv > 0 if key != "CPC" else dv < 0
-            lvl = "good" if improving else "bad"
-            sense = "hausse" if dv > 0 else "baisse"
+        drv = roas_drivers(current, previous)
+        if drv and drv["ROAS"] is not None:
+            cr, aov, cpc = (drv["Taux de conversion"], drv["Panier Moyen"],
+                            drv["CPC"])
+            dom = _DRIVER_LABEL.get(drv["dominant"], "")
+            lvl = "good" if drv["ROAS"] >= 0 else "warn"
+            bits = []
+            if cr is not None:
+                bits.append(f"CR {cr:+.0f}%")
+            if aov is not None:
+                bits.append(f"panier {aov:+.0f}%")
+            if cpc is not None:
+                bits.append(f"CPC {cpc:+.0f}%")
+            tail = f" Driver principal : {dom}." if dom else ""
             insights.append(dict(level=lvl,
-                title=f"Évolution {kw} : {dv:+.1f}%",
-                detail=f"{key} en {sense} vs période de comparaison."))
+                title=f"ROAS {drv['ROAS']:+.0f}% vs comparaison",
+                detail=(f"Décomposition (ROAS = CR × panier ÷ CPC) : "
+                        f"{', '.join(bits)}.{tail} "
+                        f"CA {drv['Revenus']:+.0f}% pour un trafic "
+                        f"{drv['Clics']:+.0f}%.")))
 
-    # 3. Meilleure / pire campagne par ROAS
-    if not by_camp.empty:
+    # 3. Contexte commercial : soldes / ventes privées
+    sc = sales_context(current)
+    if sc and sc["share"] >= 0.10:
+        insights.append(dict(level="info",
+            title=f"Période commerciale active ({sc['share']*100:.0f}% du budget "
+                  "en Sales/Soldes)",
+            detail=(f"Les campagnes Sales pèsent {sc['share']*100:.0f}% de la "
+                    f"dépense (ROAS {sc['roas']:.2f}x, panier {sc['aov']:.0f} €). "
+                    "Volume en hausse et panier/ROAS mécaniquement sous pression : "
+                    "à lire dans ce contexte, pas comme une dégradation de fond.")))
+
+    # 4. Meilleur / pire levier avec lecture d'efficience
+    if len(by_camp) >= 2:
         best = by_camp.loc[by_camp["ROAS"].idxmax()]
-        worst = by_camp.loc[by_camp["ROAS"].idxmin()]
+        worst = by_camp.loc[by_camp[by_camp["cost"] > 0]["ROAS"].idxmin()]
         insights.append(dict(level="good",
-            title=f"Campagne la plus rentable : {best['campaign_type']}",
-            detail=f"ROAS {best['ROAS']:.2f}x pour {best['revenue']:,.0f} € "
-                   f"de revenus.".replace(",", " ")))
+            title=f"Levier le plus rentable : {best['campaign_type']} "
+                  f"({best['ROAS']:.2f}x)",
+            detail=f"{_eur(best['revenue'])} de CA, panier {best['AOV']:.0f} €, "
+                   f"CR {best['CR']*100:.2f}%."))
         if worst["campaign_type"] != best["campaign_type"]:
             insights.append(dict(level="warn",
-                title=f"Campagne à surveiller : {worst['campaign_type']}",
-                detail=f"ROAS {worst['ROAS']:.2f}x — la moins rentable du mix."))
+                title=f"Levier sous-performant : {worst['campaign_type']} "
+                      f"({worst['ROAS']:.2f}x)",
+                detail=f"{_eur(worst['cost'])} dépensés, CPC {worst['CPC']:.2f} €, "
+                       f"CR {worst['CR']*100:.2f}% — efficience à challenger."))
 
-    # 4. Concentration du coût
-    if not by_country.empty:
-        top = by_country.iloc[0]
+    # 5. Concentration géographique
+    if not by_zone.empty and k["Coût"] > 0:
+        top = by_zone.iloc[0]
         share = _safe_div(top["cost"], k["Coût"]) * 100
-        if share >= 30:
+        if share >= 35:
             insights.append(dict(level="info",
-                title=f"Dépense concentrée sur « {top['country']} »",
-                detail=f"{share:.0f}% du budget total. "
-                       "Vérifiez que la diversification géographique est voulue."))
+                title=f"Dépense concentrée sur « {top[zone_dim]} » ({share:.0f}%)",
+                detail=f"ROAS {top['ROAS']:.2f}x sur cette zone. "
+                       "Un aléa local impacte fortement le global — surveiller."))
 
     return insights
 
 
 def build_recommendations(current, previous=None) -> list[dict]:
-    """Recommandations actionnables, dérivées des données.
+    """Recommandations actionnables et chiffrées (niveau senior).
 
     Chaque reco : {priority: 'haute'|'moyenne'|'basse', action, rationale}.
     """
@@ -260,49 +366,126 @@ def build_recommendations(current, previous=None) -> list[dict]:
     if current is None or current.empty:
         return recos
 
+    # 0. Diagnostics d'enchères (si stratégies/cibles disponibles via Google Ads)
+    recos.extend(bidding_diagnostics(current))
+
     by_camp = aggregate_by(current, "campaign_type")
-    by_country = aggregate_by(current, "country")
     k = compute_kpis(current)
+    zone_dim = "zone" if "zone" in current.columns else "country"
+    by_zone = aggregate_by(current, zone_dim)
     median_roas = by_camp["ROAS"].median() if not by_camp.empty else 0
 
-    # Budget : pousser les segments rentables, couper les non rentables.
+    # 1. Réallocation budgétaire chiffrée (scale rentable / coupe non rentable)
     for _, r in by_camp.iterrows():
-        if r["ROAS"] >= max(4, median_roas) and r["revenue"] > 0:
+        if r["ROAS"] >= max(4, median_roas * 1.2) and r["revenue"] > 0:
             recos.append(dict(priority="haute",
-                action=f"Augmenter le budget de « {r['campaign_type']} »",
-                rationale=f"ROAS {r['ROAS']:.2f}x au-dessus de la médiane "
-                          f"({median_roas:.2f}x) : marge de scale rentable."))
+                action=f"Scaler « {r['campaign_type']} » (+15 à +25% de budget)",
+                rationale=f"ROAS {r['ROAS']:.2f}x > médiane {median_roas:.2f}x et "
+                          f"{_eur(r['revenue'])} de CA : marge de croissance "
+                          "rentable, monter par paliers de 20% en surveillant le "
+                          "ROAS marginal."))
         elif r["ROAS"] < 2 and r["cost"] > 0:
             recos.append(dict(priority="haute",
-                action=f"Réduire / restructurer « {r['campaign_type']} »",
-                rationale=f"ROAS {r['ROAS']:.2f}x sous le seuil de rentabilité : "
-                          f"{r['cost']:,.0f} € dépensés pour un retour faible."
-                          .replace(",", " ")))
+                action=f"Restructurer / réallouer « {r['campaign_type']} »",
+                rationale=f"ROAS {r['ROAS']:.2f}x sous le seuil de rentabilité pour "
+                          f"{_eur(r['cost'])} : revoir requêtes, audiences et "
+                          "enchères, ou basculer le budget vers les leviers > médiane."))
 
-    # Pays : CPC élevé + ROAS faible → optimiser enchères.
-    if not by_country.empty:
-        cpc_med = by_country["CPC"].median()
-        for _, r in by_country.iterrows():
+    # 2. Dépendance marque → effort acquisition hors-marque
+    bk, nbk = split_brand(current)
+    if bk and nbk and bk["Coût"] > 0 and nbk["Coût"] > 0:
+        bc = _safe_div(bk["Coût"], k["Coût"]) * 100
+        if bc >= 35 and nbk["ROAS"] >= 1.5:
+            recos.append(dict(priority="moyenne",
+                action="Renforcer l'acquisition hors-marque (Gen, PMax, Shopping)",
+                rationale=f"La marque concentre {bc:.0f}% du budget. Le hors-marque "
+                          f"tient un ROAS de {nbk['ROAS']:.2f}x : il y a de la place "
+                          "pour aller chercher de la nouvelle demande sans diluer "
+                          "la rentabilité."))
+
+    # 3. Zone : CPC élevé + ROAS faible → enchères / ciblage
+    if not by_zone.empty:
+        cpc_med = by_zone["CPC"].median()
+        for _, r in by_zone.iterrows():
             if r["CPC"] > cpc_med * 1.3 and r["ROAS"] < median_roas and r["cost"] > 0:
                 recos.append(dict(priority="moyenne",
-                    action=f"Optimiser les enchères sur « {r['country']} »",
-                    rationale=f"CPC élevé ({r['CPC']:.2f} €) et ROAS faible "
-                              f"({r['ROAS']:.2f}x) : le trafic coûte cher pour "
-                              "un retour limité."))
+                    action=f"Resserrer les enchères sur « {r[zone_dim]} »",
+                    rationale=f"CPC {r['CPC']:.2f} € (+{(_safe_div(r['CPC'], cpc_med)-1)*100:.0f}% "
+                              f"vs médiane) pour un ROAS {r['ROAS']:.2f}x : le trafic "
+                              "y coûte cher pour un retour limité."))
 
-    # Panier moyen faible → ventes additionnelles / montée en gamme.
-    if k["Panier Moyen"] and k["Panier Moyen"] < 50:
-        recos.append(dict(priority="moyenne",
-            action="Travailler le panier moyen (ventes additionnelles)",
-            rationale=f"Panier moyen de {k['Panier Moyen']:.0f} € : des offres "
-                      "groupées ou des seuils de livraison gratuite peuvent "
-                      "l'augmenter."))
+    # 4. Anticipation des temps forts commerciaux
+    sc = sales_context(current)
+    if sc and sc["share"] >= 0.10:
+        recos.append(dict(priority="basse",
+            action="Cadrer les campagnes Sales (budgets + tROAS dédiés)",
+            rationale=f"{sc['share']*100:.0f}% du budget est sur des campagnes "
+                      "Sales : prévoir des budgets et des cibles d'enchères "
+                      "spécifiques sur ces périodes, et isoler leur lecture du "
+                      "BAU pour ne pas fausser les tendances de fond."))
 
     if not recos:
         recos.append(dict(priority="basse",
-            action="Maintenir la stratégie actuelle",
-            rationale="Aucun signal critique détecté sur la période : "
-                      "performances équilibrées."))
+            action="Maintenir la trajectoire actuelle",
+            rationale="Aucun signal critique : mix équilibré et rentabilité saine "
+                      "sur la période."))
+    return recos
+
+
+def bidding_diagnostics(df: pd.DataFrame) -> list[dict]:
+    """Diagnostics par campagne basés sur la stratégie d'enchères et les cibles
+    (tROAS / tCPA) — disponibles via la connexion Google Ads. Renvoie [] si ces
+    informations ne sont pas présentes (ex. imports Excel sans stratégie)."""
+    recos: list[dict] = []
+    if (df is None or df.empty or "bidding_strategy" not in df.columns
+            or "campaign_name" not in df.columns):
+        return recos
+    if not df["bidding_strategy"].astype(str).str.strip().any():
+        return recos
+
+    g = df.groupby("campaign_name", as_index=False).agg(
+        cost=("cost", "sum"), conv=("conversions", "sum"),
+        rev=("revenue", "sum"), strat=("bidding_strategy", "first"),
+        troas=("target_roas", "max"), tcpa=("target_cpa", "max"))
+
+    for _, r in g.iterrows():
+        if r["cost"] <= 0:
+            continue
+        roas = _safe_div(r["rev"], r["cost"])
+        name = r["campaign_name"]
+        if r["troas"] and r["troas"] > 0:                      # campagne en tROAS
+            tgt = float(r["troas"])
+            if roas < tgt * 0.7:
+                recos.append(dict(priority="haute",
+                    action=f"Abaisser la tROAS de « {name} »",
+                    rationale=f"ROAS réel {roas:.2f}x très en deçà de la cible "
+                              f"{tgt:.2f}x : l'algo se restreint et bride le volume. "
+                              f"Baisser la cible (~{roas*1.1:.1f}x) pour rouvrir la "
+                              "diffusion, puis remonter par paliers."))
+            elif roas > tgt * 1.3:
+                recos.append(dict(priority="moyenne",
+                    action=f"Exploiter la marge de « {name} »",
+                    rationale=f"ROAS réel {roas:.2f}x au-dessus de la cible "
+                              f"{tgt:.2f}x : marge pour augmenter le budget ou "
+                              "gagner du volume en abaissant légèrement la tROAS."))
+        elif r["tcpa"] and r["tcpa"] > 0 and r["conv"] > 0:    # campagne en tCPA
+            cpa = _safe_div(r["cost"], r["conv"])
+            if cpa > r["tcpa"] * 1.3:
+                recos.append(dict(priority="haute",
+                    action=f"Ajuster la tCPA de « {name} »",
+                    rationale=f"CPA réel {cpa:.0f} € au-dessus de la cible "
+                              f"{r['tcpa']:.0f} € : resserrer le ciblage/la qualité "
+                              "du trafic ou réaligner la cible."))
+        else:                                                  # pas de cible valeur
+            strat = str(r["strat"]).upper()
+            if any(s in strat for s in ("MAXIMIZE_CONVERSION", "MAXIMIZE CONVERSION",
+                                        "MAXIMIZE_CLICKS", "MAXIMIZE CLICKS",
+                                        "MANUAL")) and r["rev"] > 0:
+                recos.append(dict(priority="moyenne",
+                    action=f"Passer « {name} » en tROAS",
+                    rationale=f"Stratégie « {r['strat']} » sans cible de valeur "
+                              f"alors que la campagne génère du CA (ROAS {roas:.2f}x) "
+                              ": une tROAS piloterait mieux la rentabilité."))
     return recos
 
 

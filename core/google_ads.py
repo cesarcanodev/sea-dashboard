@@ -31,6 +31,9 @@ _GAQL = """
     SELECT
       segments.date,
       campaign.name,
+      campaign.bidding_strategy_type,
+      campaign.maximize_conversion_value.target_roas,
+      campaign.maximize_conversions.target_cpa_micros,
       metrics.clicks,
       metrics.cost_micros,
       metrics.conversions,
@@ -39,6 +42,14 @@ _GAQL = """
     WHERE segments.date BETWEEN '{start}' AND '{end}'
       AND metrics.impressions > 0
 """
+
+
+def _bidding_name(campaign) -> str:
+    """Nom lisible de la stratégie d'enchères (enum → texte)."""
+    try:
+        return campaign.bidding_strategy_type.name.replace("_", " ").title()
+    except Exception:
+        return ""
 
 
 def _secrets() -> dict:
@@ -111,9 +122,15 @@ def fetch_raw(customer_id: str, start: str, end: str) -> pd.DataFrame:
     rows = []
     for batch in service.search_stream(customer_id=cid, query=query):
         for r in batch.results:
+            c = r.campaign
+            tcpa_micros = getattr(c.maximize_conversions, "target_cpa_micros", 0) or 0
+            troas = getattr(c.maximize_conversion_value, "target_roas", 0) or 0
             rows.append({
                 "Date": r.segments.date,
-                "Campaign": r.campaign.name,
+                "Campaign": c.name,
+                "Bidding strategy": _bidding_name(c),
+                "Target ROAS": float(troas),
+                "Target CPA": tcpa_micros / 1_000_000,
                 "Clicks": r.metrics.clicks,
                 "Cost": r.metrics.cost_micros / 1_000_000,
                 "Conversions": r.metrics.conversions,

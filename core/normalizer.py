@@ -31,6 +31,10 @@ CANONICAL_COLUMNS = [
     "zone",
     "campaign_type",
     "family",
+    "campaign_name",      # nom complet de la campagne (lecture nomenclature)
+    "bidding_strategy",   # stratégie d'enchères (Google Ads)
+    "target_roas",        # cible tROAS (ratio) si applicable
+    "target_cpa",         # cible tCPA (€) si applicable
     "clicks",
     "cost",
     "conversions",
@@ -38,6 +42,8 @@ CANONICAL_COLUMNS = [
 ]
 
 MEASURE_COLUMNS = ["clicks", "cost", "conversions", "revenue"]
+# Colonnes numériques non sommables (passées telles quelles, nettoyées).
+NUMERIC_EXTRA = ["target_roas", "target_cpa"]
 TEXT_COLUMNS = ["country", "campaign_type"]
 
 
@@ -115,6 +121,17 @@ COLUMN_ALIASES = {
     "revenue ss": "revenue",
     "valeur de conversion server side": "revenue",
     "conv val server side": "revenue",
+    # bidding strategy (Google Ads)
+    "bidding strategy": "bidding_strategy",
+    "strategie denchere": "bidding_strategy",
+    "strategie d enchere": "bidding_strategy",
+    "strategie enchere": "bidding_strategy",
+    "target roas": "target_roas",
+    "troas": "target_roas",
+    "cible roas": "target_roas",
+    "target cpa": "target_cpa",
+    "tcpa": "target_cpa",
+    "cible cpa": "target_cpa",
 }
 
 
@@ -207,8 +224,8 @@ def normalize(df: pd.DataFrame) -> pd.DataFrame:
     # 2. Colonnes manquantes → valeurs neutres
     for col in CANONICAL_COLUMNS:
         if col not in df.columns:
-            if col in MEASURE_COLUMNS:
-                df[col] = 0
+            if col in MEASURE_COLUMNS or col in NUMERIC_EXTRA:
+                df[col] = 0.0
             else:
                 df[col] = ""
 
@@ -227,6 +244,8 @@ def normalize(df: pd.DataFrame) -> pd.DataFrame:
     # 4. Nombres (format français)
     for col in MEASURE_COLUMNS:
         df[col] = _clean_numeric(df[col])
+    for col in NUMERIC_EXTRA:           # cibles d'enchères (non sommables)
+        df[col] = _clean_numeric(df[col])
 
     # 4b. Détection du client (d'après les noms de campagne) → règles propres :
     #     tokens de type + regroupements de zones. Le libellé de campagne ne
@@ -234,6 +253,9 @@ def normalize(df: pd.DataFrame) -> pd.DataFrame:
     raw_campaign = df["campaign_type"].astype(str)
     cfg = clients.config_for(raw_campaign.tolist())
     df.attrs["client"] = cfg["name"]
+    # On conserve le NOM COMPLET de la campagne (lecture des nomenclatures :
+    # « Sales » = soldes, « dédiée », marché, etc.) en plus du type réduit.
+    df["campaign_name"] = [str(c).strip() for c in raw_campaign]
     parsed = raw_campaign.apply(lambda x: parse_campaign(x, cfg["types"]))
     df["campaign_type"] = [
         _campaign_label(orig, t) for orig, (t, _) in zip(raw_campaign, parsed)]
