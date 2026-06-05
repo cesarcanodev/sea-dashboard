@@ -57,17 +57,24 @@ edited = st.text_area("Compte-rendu", height=560, key="report_text")
 # --- Envoi du compte-rendu (sans aucune connexion) ---
 ui.section_band("Envoyer le compte-rendu")
 
-e1, e2 = st.columns(2)
+e0, e1 = st.columns(2)
+from_account = e0.text_input(
+    "Ton compte Gmail (envoi)", key="mail_from",
+    placeholder="prenom@agence.com",
+    help="Ton adresse Gmail PRO. Le brouillon s'ouvrira sur CE compte "
+         "(et non ton compte perso). Laisse vide pour le compte par défaut.")
 to_email = e1.text_input("Email du destinataire", key="mail_to",
                          placeholder="laurine@exemple.com")
-subject = e2.text_input(
+subject = st.text_input(
     "Objet", key="mail_subject",
     value=f"Point perf SEA — {st.session_state.get('client_name', '')} "
           f"({period_label})".strip())
 
 # Liens « compose » pré-remplis : aucune connexion ni configuration requise.
+# ``authuser`` route vers le bon compte Gmail connecté (pro vs perso).
 su_q, body_q, to_q = quote(subject), quote(edited), quote(to_email)
-gmail_url = (f"https://mail.google.com/mail/?view=cm&fs=1"
+auth = f"authuser={quote(from_account)}&" if from_account.strip() else ""
+gmail_url = (f"https://mail.google.com/mail/?{auth}view=cm&fs=1&tf=1"
              f"&to={to_q}&su={su_q}&body={body_q}")
 mailto_url = f"mailto:{to_q}?subject={su_q}&body={body_q}"
 
@@ -86,9 +93,10 @@ with b3:
                        file_name=f"compte_rendu_sea_{start:%Y%m%d}.txt",
                        mime="text/plain", width="stretch")
 
-st.caption("💡 « Ouvrir dans Gmail » ne demande **aucune connexion** : le mail "
-           "s'ouvre pré-rempli, tu relis et tu cliques sur Envoyer. Le **PDF "
-           "complet** (tableaux + graphiques) se génère via la sidebar.")
+st.caption("💡 « Ouvrir dans Gmail » ne demande **aucune connexion** : renseigne "
+           "ton **compte Gmail pro** ci-dessus pour que le brouillon s'ouvre sur "
+           "le bon compte, relis, puis Envoie. Le **PDF complet** se génère via "
+           "la sidebar.")
 
 # --- Option avancée : brouillon Gmail automatique via OAuth ---
 with st.expander("⚙️ Option avancée — brouillon Gmail automatique (connexion OAuth)"):
