@@ -86,14 +86,35 @@ def _inject_css() -> None:
             box-shadow:0 1px 3px rgba(30,58,138,.08);}}
         div[data-testid="stPopover"] button:hover {{
             border-color:{T['accent']} !important; background:#F4F8FD !important;}}
-        /* Lisibilité des libellés de widgets + tags à la charte (robuste même
-           si le thème clair du config.toml n'est pas chargé en ligne). */
+        /* === Forçage du thème CLAIR sur les widgets, robuste même si le
+           config.toml (base=light) n'est pas déployé en ligne. On neutralise le
+           rendu sombre que Streamlit hérite du mode sombre du navigateur. === */
+        /* Libellés de widgets + texte des options radio toujours lisibles */
         label[data-testid="stWidgetLabel"] p, .stRadio label, .stSelectbox label,
-        .stMultiSelect label, .stDateInput label, .stTextInput label {{
+        .stMultiSelect label, .stDateInput label, .stTextInput label,
+        div[role="radiogroup"] label, div[role="radiogroup"] label p {{
             color:{T['text']} !important;}}
+        /* Contrôle des champs (multiselect, selectbox, date) : fond blanc bordé */
+        div[data-baseweb="select"] > div, div[data-baseweb="input"] > div,
+        div[data-baseweb="select"] {{
+            background-color:#FFFFFF !important; border-color:#D7E2EE !important;
+            color:{T['text']} !important;}}
+        div[data-baseweb="select"] *, div[data-baseweb="input"] input {{
+            color:{T['text']} !important;}}
+        /* Menu déroulant ouvert (liste d'options) : fond clair, texte foncé */
+        div[data-baseweb="popover"] div[role="listbox"],
+        ul[role="listbox"], ul[role="listbox"] li {{
+            background-color:#FFFFFF !important; color:{T['text']} !important;}}
+        ul[role="listbox"] li:hover {{background-color:#F4F8FD !important;}}
+        /* Tags du multiselect à la charte */
         span[data-baseweb="tag"] {{background:{T['accent']} !important;
             color:#FFFFFF !important;}}
         span[data-baseweb="tag"] svg {{fill:#FFFFFF !important;}}
+        /* Expander (dépliant) clair */
+        details, div[data-testid="stExpander"] {{
+            background-color:#FFFFFF !important;}}
+        div[data-testid="stExpander"] summary, div[data-testid="stExpander"] p {{
+            color:{T['text']} !important;}}
         .section-band {{
             background:{T['primary']}; color:#FFFFFF; text-align:center;
             padding:9px; font-weight:700; text-transform:uppercase;
@@ -110,7 +131,7 @@ def _inject_css() -> None:
             min-height:28px; display:flex; align-items:center;
             justify-content:center;}}
         .sc-value {{font-size:23px; font-weight:700; color:{T['text']};
-            line-height:1.2; margin-top:auto;}}
+            line-height:1.2; margin-top:auto; white-space:nowrap;}}
         .sc-delta {{font-size:12px; font-weight:600; margin-top:3px;}}
         .sc-pos {{color:{T['positive']};}} .sc-neg {{color:{T['negative']};}}
         .sc-flat {{color:{T['muted']};}}
@@ -385,6 +406,19 @@ def fmt_eur(v: float) -> str:
     return f"{v:,.0f}".replace(",", " ") + " €"
 
 
+def fmt_eur_compact(v: float) -> str:
+    """Montant compact pour les scorecards : « 354 K€ », « 1,2 M€ ».
+
+    Les gros montants (Revenus, Coût) tiennent ainsi sur une seule ligne ; les
+    petits (Panier moyen) gardent l'affichage complet « 347 € »."""
+    a = abs(v)
+    if a >= 1_000_000:
+        return f"{v / 1_000_000:.1f} M€".replace(".", ",")
+    if a >= 10_000:
+        return f"{v / 1_000:.0f} K€"
+    return fmt_eur(v)
+
+
 def fmt_cpc(v: float) -> str:
     """CPC : 2 décimales (montant < 1 €) → « 0,34 € »."""
     s = f"{v:,.2f}".replace(",", "§").replace(".", ",").replace("§", " ")
@@ -404,10 +438,14 @@ def fmt_pct(v: float) -> str:
     return f"{v * 100:.2f}".replace(".", ",") + " %"
 
 
-def fmt_metric(label: str, v: float) -> str:
+def fmt_metric(label: str, v: float, compact: bool = False) -> str:
     if label == "CPC":
         return fmt_cpc(v)
     if label in ("Coût", "Revenus", "Panier Moyen"):
+        # Panier moyen reste lisible en entier ; Coût/Revenus en compact (K€/M€)
+        # sur les scorecards pour tenir sur une ligne.
+        if compact and label != "Panier Moyen":
+            return fmt_eur_compact(v)
         return fmt_eur(v)
     if label == "ROAS":
         return fmt_roas(v)
@@ -508,8 +546,8 @@ def scorecard_row(kpis: dict, prev: dict | None, items: list[str]) -> None:
         with col:
             st.markdown(
                 f'<div class="sc"><div class="sc-label">{key}</div>'
-                f'<div class="sc-value">{fmt_metric(key, kpis[key])}</div>'
-                f"{_delta_span(d)}</div>",
+                f'<div class="sc-value">{fmt_metric(key, kpis[key], compact=True)}'
+                f"</div>{_delta_span(d)}</div>",
                 unsafe_allow_html=True,
             )
 

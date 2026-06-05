@@ -58,14 +58,18 @@ st.caption("💡 Clique sur un en-tête de colonne pour trier "
 # Grouper par libellé (nomenclature client) ou par famille (DSA↔Brand Other,
 # Pure Brand↔Brex regroupés).
 gc1, gc2 = st.columns([1, 2])
-group_by = gc1.radio("Grouper par", ["Libellé", "Famille"], horizontal=True,
-                     key="camp_group")
+group_by = gc1.radio(
+    "Grouper par", ["Libellé", "Famille"], horizontal=True, key="camp_group",
+    help="« Libellé » = la nomenclature exacte du client. « Famille » regroupe "
+         "les libellés équivalents : DSA + Brand Other, Pure Brand + Brex.")
 camp_dim = "campaign_type" if group_by == "Libellé" else "family"
 camp_lbl = "Type de campagne" if group_by == "Libellé" else "Famille"
 
 all_types = sorted(current[camp_dim].unique())
+# Clé dépendante du mode : sinon une sélection faite en « Libellé » (ex. DSA)
+# resterait en session et casserait le filtre en « Famille » (Brand Other).
 selected = gc2.multiselect(f"Filtrer ({camp_lbl.lower()})", all_types,
-                           default=all_types, key="camp_filter")
+                           default=all_types, key=f"camp_filter_{camp_dim}")
 sel = selected or all_types
 sub = current[current[camp_dim].isin(sel)]
 sub_prev = (prev_df[prev_df[camp_dim].isin(sel)]

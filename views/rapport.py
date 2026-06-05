@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import quote
+
 import streamlit as st
 
 from core import gmail_draft, report, ui
@@ -52,34 +54,53 @@ if st.button("🔄 Régénérer le compte-rendu") or "report_text" not in st.ses
     st.session_state["report_text"] = generated
 edited = st.text_area("Compte-rendu", height=560, key="report_text")
 
-c1, c2 = st.columns(2)
-with c1:
-    st.download_button("⬇️ Télécharger en .txt", data=edited,
+# --- Envoi du compte-rendu (sans aucune connexion) ---
+ui.section_band("Envoyer le compte-rendu")
+
+e1, e2 = st.columns(2)
+to_email = e1.text_input("Email du destinataire", key="mail_to",
+                         placeholder="laurine@exemple.com")
+subject = e2.text_input(
+    "Objet", key="mail_subject",
+    value=f"Point perf SEA — {st.session_state.get('client_name', '')} "
+          f"({period_label})".strip())
+
+# Liens « compose » pré-remplis : aucune connexion ni configuration requise.
+su_q, body_q, to_q = quote(subject), quote(edited), quote(to_email)
+gmail_url = (f"https://mail.google.com/mail/?view=cm&fs=1"
+             f"&to={to_q}&su={su_q}&body={body_q}")
+mailto_url = f"mailto:{to_q}?subject={su_q}&body={body_q}"
+
+b1, b2, b3 = st.columns(3)
+with b1:
+    st.link_button("📧 Ouvrir dans Gmail", gmail_url, width="stretch",
+                   help="Ouvre une fenêtre Gmail avec destinataire, objet et "
+                        "corps déjà remplis — tu relis et tu envoies. Aucune "
+                        "connexion à configurer.")
+with b2:
+    st.link_button("✉️ Ouvrir dans ma messagerie", mailto_url, width="stretch",
+                   help="Ouvre ton logiciel de mail par défaut "
+                        "(Outlook, Apple Mail…) avec le mail pré-rempli.")
+with b3:
+    st.download_button("⬇️ Télécharger .txt", data=edited,
                        file_name=f"compte_rendu_sea_{start:%Y%m%d}.txt",
                        mime="text/plain", width="stretch")
-with c2:
-    st.caption("📄 Le **PDF complet** (tableaux + graphiques) se génère via le "
-               "bouton « Générer le rapport PDF » dans la sidebar.")
 
-# --- Brouillon Gmail ---
-ui.section_band("Créer le brouillon Gmail")
-if not gmail_draft.configured():
-    st.info("✉️ **Activation Gmail** : ajoute tes identifiants OAuth dans les "
-            "**Secrets Streamlit** (`[gmail]` client_id / client_secret / "
-            "refresh_token). Voir **GMAIL_SETUP.md** dans le projet. "
-            "Une fois fait, un bouton « Créer le brouillon » apparaîtra ici.")
-else:
-    g1, g2 = st.columns(2)
-    to = g1.text_input("Destinataire (optionnel)", key="mail_to",
-                       placeholder="client@exemple.com")
-    subject = g2.text_input(
-        "Objet", key="mail_subject",
-        value=f"Point perf SEA — {st.session_state.get('client_name','')} "
-              f"({period_label})".strip())
-    if st.button("📧 Créer le brouillon dans Gmail", width="stretch"):
+st.caption("💡 « Ouvrir dans Gmail » ne demande **aucune connexion** : le mail "
+           "s'ouvre pré-rempli, tu relis et tu cliques sur Envoyer. Le **PDF "
+           "complet** (tableaux + graphiques) se génère via la sidebar.")
+
+# --- Option avancée : brouillon Gmail automatique via OAuth ---
+with st.expander("⚙️ Option avancée — brouillon Gmail automatique (connexion OAuth)"):
+    if not gmail_draft.configured():
+        st.info("Pour que l'app dépose elle-même le brouillon dans tes "
+                "**Brouillons** Gmail, ajoute tes identifiants OAuth dans les "
+                "**Secrets Streamlit** (`[gmail]`). Voir **GMAIL_SETUP.md**. "
+                "Sinon, le bouton « Ouvrir dans Gmail » ci-dessus suffit.")
+    elif st.button("📧 Créer le brouillon dans Gmail", width="stretch"):
         try:
-            gmail_draft.create_draft(subject, edited, to)
-            st.success("✅ Brouillon créé dans Gmail — il est dans ton dossier "
+            gmail_draft.create_draft(subject, edited, to_email)
+            st.success("✅ Brouillon créé dans Gmail — dans ton dossier "
                        "**Brouillons**, prêt à relire et envoyer.")
         except Exception as exc:
             st.error(f"Échec de la création du brouillon : {exc}")
