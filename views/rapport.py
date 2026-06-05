@@ -57,12 +57,13 @@ edited = st.text_area("Compte-rendu", height=560, key="report_text")
 # --- Envoi du compte-rendu (sans aucune connexion) ---
 ui.section_band("Envoyer le compte-rendu")
 
-e0, e1 = st.columns(2)
-from_account = e0.text_input(
-    "Ton compte Gmail (envoi)", key="mail_from",
-    placeholder="prenom@agence.com",
-    help="Ton adresse Gmail PRO. Le brouillon s'ouvrira sur CE compte "
-         "(et non ton compte perso). Laisse vide pour le compte par défaut.")
+e0, e1 = st.columns([1, 2])
+account_no = e0.number_input(
+    "N° compte Gmail", min_value=0, max_value=9, value=0, step=1,
+    key="mail_acct",
+    help="Le numéro de TON compte Gmail pro dans l'URL. Ouvre ton Gmail pro et "
+         "regarde l'adresse : mail.google.com/mail/u/1/… → mets 1. "
+         "(0 = ton 1er compte connecté, souvent le perso.)")
 to_email = e1.text_input("Email du destinataire", key="mail_to",
                          placeholder="laurine@exemple.com")
 subject = st.text_input(
@@ -70,12 +71,11 @@ subject = st.text_input(
     value=f"Point perf SEA — {st.session_state.get('client_name', '')} "
           f"({period_label})".strip())
 
-# Liens « compose » pré-remplis : aucune connexion ni configuration requise.
-# ``authuser`` route vers le bon compte Gmail connecté (pro vs perso).
+# Lien « compose » pré-rempli. Le chemin /u/<n>/ cible un compte Gmail précis
+# (méthode fiable, contrairement à authuser que Gmail ignore souvent).
 su_q, body_q, to_q = quote(subject), quote(edited), quote(to_email)
-auth = f"authuser={quote(from_account)}&" if from_account.strip() else ""
-gmail_url = (f"https://mail.google.com/mail/?{auth}view=cm&fs=1&tf=1"
-             f"&to={to_q}&su={su_q}&body={body_q}")
+gmail_url = (f"https://mail.google.com/mail/u/{int(account_no)}/"
+             f"?view=cm&fs=1&tf=1&to={to_q}&su={su_q}&body={body_q}")
 mailto_url = f"mailto:{to_q}?subject={su_q}&body={body_q}"
 
 b1, b2, b3 = st.columns(3)
@@ -93,10 +93,10 @@ with b3:
                        file_name=f"compte_rendu_sea_{start:%Y%m%d}.txt",
                        mime="text/plain", width="stretch")
 
-st.caption("💡 « Ouvrir dans Gmail » ne demande **aucune connexion** : renseigne "
-           "ton **compte Gmail pro** ci-dessus pour que le brouillon s'ouvre sur "
-           "le bon compte, relis, puis Envoie. Le **PDF complet** se génère via "
-           "la sidebar.")
+st.caption("💡 « Ouvrir dans Gmail » ne demande **aucune connexion** : mets le "
+           "**n° de ton compte pro** (visible dans l'URL de ton Gmail, "
+           "`…/mail/u/1/` → 1) pour que le mail s'ouvre sur le bon compte, relis, "
+           "puis Envoie. Le **PDF complet** se génère via la sidebar.")
 
 # --- Option avancée : brouillon Gmail automatique via OAuth ---
 with st.expander("⚙️ Option avancée — brouillon Gmail automatique (connexion OAuth)"):
