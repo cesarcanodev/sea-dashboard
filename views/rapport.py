@@ -5,6 +5,7 @@ from __future__ import annotations
 from urllib.parse import quote
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from core import gmail_draft, report, ui
 
@@ -98,17 +99,52 @@ st.caption("💡 « Ouvrir dans Gmail » ne demande **aucune connexion** : mets 
            "`…/mail/u/1/` → 1) pour que le mail s'ouvre sur le bon compte, relis, "
            "puis Envoie. Le **PDF complet** se génère via la sidebar.")
 
-# --- Option avancée : brouillon Gmail automatique via OAuth ---
+# --- Version mise en forme (tableaux bordés, total/en-têtes en gras, WoW
+#     vert/rouge) à coller dans Gmail en conservant la mise en forme. ---
+ui.section_band("Version mise en forme (à coller dans Gmail)")
+email_html = report.build_email_html(current, prev_df, period_label, comparison,
+                                     recipient=recipient, signature=signature)
+_copy = f"""
+<div style="font-family:Arial,Helvetica,sans-serif;">
+  <button id="cpy" style="background:#384959;color:#fff;border:none;padding:10px 18px;
+      border-radius:8px;font-weight:700;cursor:pointer;font-size:14px;">
+      📋 Copier le mail mis en forme</button>
+  <span id="msg" style="margin-left:12px;color:#2E7D5B;font-size:13px;font-weight:600;"></span>
+  <div id="mailbox" style="border:1px solid #E3EAF3;border-radius:10px;padding:16px;
+      margin-top:12px;background:#fff;">{email_html}</div>
+</div>
+<script>
+document.getElementById('cpy').addEventListener('click', async () => {{
+  const box = document.getElementById('mailbox');
+  try {{
+    await navigator.clipboard.write([new ClipboardItem({{
+      'text/html': new Blob([box.innerHTML], {{type:'text/html'}}),
+      'text/plain': new Blob([box.innerText], {{type:'text/plain'}})
+    }})]);
+    document.getElementById('msg').textContent = '✅ Copié ! Colle dans Gmail (Cmd+V), la mise en forme est conservée.';
+  }} catch (e) {{
+    document.getElementById('msg').textContent = 'Copie auto indisponible — sélectionne le tableau ci-dessous puis Cmd+C.';
+  }}
+}});
+</script>
+"""
+components.html(_copy, height=640, scrolling=True)
+st.caption("Cette version reprend tes chiffres mis en forme. Les ajouts "
+           "éditoriaux (contexte « ventes press », « soldes »…) se font après "
+           "collage dans Gmail.")
+
+# --- Option avancée : brouillon Gmail automatique via OAuth (mis en forme) ---
 with st.expander("⚙️ Option avancée — brouillon Gmail automatique (connexion OAuth)"):
     if not gmail_draft.configured():
-        st.info("Pour que l'app dépose elle-même le brouillon dans tes "
-                "**Brouillons** Gmail, ajoute tes identifiants OAuth dans les "
-                "**Secrets Streamlit** (`[gmail]`). Voir **GMAIL_SETUP.md**. "
-                "Sinon, le bouton « Ouvrir dans Gmail » ci-dessus suffit.")
-    elif st.button("📧 Créer le brouillon dans Gmail", width="stretch"):
+        st.info("Pour que l'app dépose elle-même le brouillon **mis en forme** "
+                "dans tes **Brouillons** Gmail, ajoute tes identifiants OAuth dans "
+                "les **Secrets Streamlit** (`[gmail]`). Voir **GMAIL_SETUP.md**. "
+                "Sinon, le bouton « Copier le mail mis en forme » ci-dessus suffit.")
+    elif st.button("📧 Créer le brouillon (mis en forme) dans Gmail",
+                   width="stretch"):
         try:
-            gmail_draft.create_draft(subject, edited, to_email)
-            st.success("✅ Brouillon créé dans Gmail — dans ton dossier "
-                       "**Brouillons**, prêt à relire et envoyer.")
+            gmail_draft.create_draft(subject, edited, to_email, html=email_html)
+            st.success("✅ Brouillon mis en forme créé dans Gmail — dans ton "
+                       "dossier **Brouillons**, prêt à relire et envoyer.")
         except Exception as exc:
             st.error(f"Échec de la création du brouillon : {exc}")

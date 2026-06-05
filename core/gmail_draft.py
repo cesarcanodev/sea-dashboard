@@ -55,13 +55,19 @@ def _service():
     return build("gmail", "v1", credentials=creds, cache_discovery=False)
 
 
-def create_draft(subject: str, body: str, to: str = "") -> str:
-    """Crée un brouillon Gmail et renvoie son id. Lève si non configuré."""
+def create_draft(subject: str, body: str, to: str = "", html: str = "") -> str:
+    """Crée un brouillon Gmail et renvoie son id. Lève si non configuré.
+
+    Si ``html`` est fourni, le brouillon est mis en forme (tableaux, couleurs) ;
+    sinon il est en texte brut."""
     if not configured():
         raise RuntimeError(
             "Gmail non configuré : ajoutez [gmail] dans les Secrets Streamlit.")
     s = _secrets()
-    msg = MIMEText(body or "", "plain", "utf-8")
+    if html:
+        msg = MIMEText(html, "html", "utf-8")
+    else:
+        msg = MIMEText(body or "", "plain", "utf-8")
     msg["Subject"] = subject or "Compte-rendu SEA"
     if to:
         msg["To"] = to
