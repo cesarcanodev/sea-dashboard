@@ -106,6 +106,15 @@ def _inject_css() -> None:
         ul[role="listbox"], ul[role="listbox"] li {{
             background-color:#FFFFFF !important; color:{T['text']} !important;}}
         ul[role="listbox"] li:hover {{background-color:#F4F8FD !important;}}
+        /* Calendrier (date picker) : fond clair, texte foncé, sélection charte */
+        div[data-baseweb="popover"] > div, div[data-baseweb="calendar"] {{
+            background-color:#FFFFFF !important;}}
+        div[data-baseweb="calendar"], div[data-baseweb="calendar"] button,
+        div[data-baseweb="calendar"] [role="gridcell"],
+        div[data-baseweb="calendar"] [role="columnheader"] {{
+            color:{T['text']} !important;}}
+        div[data-baseweb="calendar"] [aria-selected="true"] {{
+            background-color:{T['primary']} !important; color:#FFFFFF !important;}}
         /* Tags du multiselect à la charte */
         span[data-baseweb="tag"] {{background:{T['accent']} !important;
             color:#FFFFFF !important;}}
@@ -485,48 +494,36 @@ def header_band(date_label: str, title: str | None = None) -> None:
 
 
 def page_header(df: pd.DataFrame, title: str | None = None):
-    """En-tête de page façon Looker Studio : titre à gauche, **bouton de période**
-    à droite (popover contenant la plage de dates + la comparaison).
+    """En-tête de page façon Looker Studio : titre à gauche, **champ de période**
+    et **comparaison** directement en haut à droite (un seul panneau au clic, pas
+    de double pop-up).
 
     Remplace `sidebar_filters` + `header_band`. Les widgets gardent les clés
     `flt_period` / `flt_comparison` : le réglage reste partagé entre toutes les
     pages. Renvoie (start, end, comparison) ou None si la sélection est incomplète.
     """
     min_d, max_d = df["date"].min().date(), df["date"].max().date()
-    rng_state = st.session_state.get("flt_period", (min_d, max_d))
-    if isinstance(rng_state, (tuple, list)) and len(rng_state) == 2:
-        date_lbl = f"{rng_state[0]:%d/%m/%Y} – {rng_state[1]:%d/%m/%Y}"
-    else:
-        date_lbl = "Choisir la période"
-    comp_state = st.session_state.get("flt_comparison", "Aucune")
-
-    sub = f"Période · {date_lbl}"
-    if comp_state != "Aucune":
-        sub += f"  ·  vs {comp_state.lower()}"
 
     try:
-        c_title, c_btn = st.columns([0.6, 0.4], vertical_alignment="center")
+        c_title, c_date, c_comp = st.columns(
+            [0.5, 0.28, 0.22], vertical_alignment="center")
     except TypeError:  # Streamlit < 1.36 (pas de vertical_alignment)
-        c_title, c_btn = st.columns([0.6, 0.4])
+        c_title, c_date, c_comp = st.columns([0.5, 0.28, 0.22])
     with c_title:
         st.markdown(f'<div class="page-title">{title or THEME["title"]}</div>'
-                    f'<div class="page-sub">{sub}</div>', unsafe_allow_html=True)
-    with c_btn:
-        popover = getattr(st, "popover", None)
-        box = (popover(f"📅  {date_lbl}", use_container_width=True) if popover
-               else st.expander(f"📅  {date_lbl}"))
-        with box:
-            st.date_input("Plage de dates", value=(min_d, max_d), key="flt_period")
-            st.caption(f"Données disponibles : {min_d:%d/%m/%Y} → {max_d:%d/%m/%Y}")
-            st.selectbox("Comparaison",
-                         ["Aucune", "Période précédente", "Année précédente"],
-                         key="flt_comparison")
+                    '<div class="page-sub">Performances SEA</div>',
+                    unsafe_allow_html=True)
+    with c_date:
+        st.date_input("📅 Période", value=(min_d, max_d), key="flt_period")
+    with c_comp:
+        st.selectbox("Comparaison",
+                     ["Aucune", "Période précédente", "Année précédente"],
+                     key="flt_comparison")
     st.markdown('<div class="title-rule"></div>', unsafe_allow_html=True)
 
     rng = st.session_state.get("flt_period", (min_d, max_d))
     if not isinstance(rng, (tuple, list)) or len(rng) != 2:
-        st.warning("📅 Sélectionne une date de **début** ET de **fin** "
-                   "(bouton de période en haut à droite).")
+        st.warning("📅 Sélectionne une date de **début** ET de **fin**.")
         return None
     start, end = rng
     if start > end:
