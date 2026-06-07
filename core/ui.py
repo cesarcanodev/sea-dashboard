@@ -504,6 +504,16 @@ def page_header(df: pd.DataFrame, title: str | None = None):
     """
     min_d, max_d = df["date"].min().date(), df["date"].max().date()
 
+    # Persistance entre pages : on initialise une fois, puis on « ré-affecte »
+    # les clés à chaque run pour que Streamlit ne les recycle pas en changeant de
+    # page (sinon la période/comparaison se réinitialisent à la navigation).
+    if "flt_period" not in st.session_state:
+        st.session_state["flt_period"] = (min_d, max_d)
+    if "flt_comparison" not in st.session_state:
+        st.session_state["flt_comparison"] = "Aucune"
+    st.session_state["flt_period"] = st.session_state["flt_period"]
+    st.session_state["flt_comparison"] = st.session_state["flt_comparison"]
+
     try:
         c_title, c_date, c_comp = st.columns(
             [0.5, 0.28, 0.22], vertical_alignment="center")
@@ -514,7 +524,8 @@ def page_header(df: pd.DataFrame, title: str | None = None):
                     '<div class="page-sub">Performances SEA</div>',
                     unsafe_allow_html=True)
     with c_date:
-        st.date_input("📅 Période", value=(min_d, max_d), key="flt_period")
+        # Pas de value= : la valeur vient du session_state (partagée entre pages).
+        st.date_input("📅 Période", key="flt_period")
     with c_comp:
         st.selectbox("Comparaison",
                      ["Aucune", "Période précédente", "Année précédente"],
