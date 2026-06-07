@@ -37,20 +37,25 @@ elif prev_df is None:
     st.warning("Pas de données sur la période de comparaison : le compte-rendu "
                "sera généré sans variations.")
 
-gc1, gc2 = st.columns(2)
+gc1, gc2, gc3 = st.columns(3)
 recipient = gc1.text_input(
     "Destinataire (salutation)", key="mail_greet",
     placeholder="Laurine   ·   Hortense et Agathe",
     help="Prénom(s) après « Hello ». Mets « et » ou une virgule pour passer "
          "automatiquement au vouvoiement (ex. « Hortense et Agathe »).")
 signature = gc2.text_input("Signature", value="César", key="mail_sign")
+trend = gc3.text_input(
+    "Objectif dépense/CA", key="mail_trend", placeholder="7 à 8 %",
+    help="Optionnel : rappelle l'objectif de ratio dépense/CA en clôture. "
+         "Ex. « 7 à 8 % » → « on reste bien dans le trend des 7 à 8 % ? ».")
 
 st.caption("Compte-rendu rédigé dans ton ton. Modifie-le librement ; clique "
            "**« Régénérer »** après avoir changé la période, le destinataire ou "
            "la signature, puis copie-le (icône en haut à droite) ou télécharge-le.")
 
 generated = report.build_email(current, prev_df, period_label, comparison,
-                               recipient=recipient, signature=signature)
+                               recipient=recipient, signature=signature,
+                               trend=trend)
 if st.button("🔄 Régénérer le compte-rendu") or "report_text" not in st.session_state:
     st.session_state["report_text"] = generated
 edited = st.text_area("Compte-rendu", height=560, key="report_text")
@@ -103,7 +108,8 @@ st.caption("💡 « Ouvrir dans Gmail » ne demande **aucune connexion** : mets 
 #     vert/rouge) à coller dans Gmail en conservant la mise en forme. ---
 ui.section_band("Version mise en forme (à coller dans Gmail)")
 email_html = report.build_email_html(current, prev_df, period_label, comparison,
-                                     recipient=recipient, signature=signature)
+                                     recipient=recipient, signature=signature,
+                                     trend=trend)
 _copy = f"""
 <div style="font-family:Arial,Helvetica,sans-serif;">
   <button id="cpy" style="background:#384959;color:#fff;border:none;padding:10px 18px;

@@ -21,7 +21,7 @@ _MODEL = "claude-opus-4-8"
 
 # Types autorisés (liste fermée) — alignés sur nos libellés.
 ALLOWED_TYPES = [
-    "PLA", "PMax", "Search Brand", "DSA", "Brex", "Gen",
+    "Shopping", "PMax", "Search Brand", "DSA", "Brex", "Gen",
     "Display", "Demand Gen", "Video", "Discovery", "App", "Autre",
 ]
 
@@ -29,9 +29,9 @@ _SYSTEM = (
     "Tu classes des noms de campagnes Google Ads (SEA). Pour chaque nom, "
     "déduis deux champs :\n"
     "1) type : EXACTEMENT l'une de ces valeurs — "
-    "PLA, PMax, Search Brand, DSA, Brex, Gen, Display, Demand Gen, Video, "
+    "Shopping, PMax, Search Brand, DSA, Brex, Gen, Display, Demand Gen, Video, "
     "Discovery, App, Autre.\n"
-    "   Indices : 'pmax'/'performance max'→PMax ; 'pla'/'shopping'/'gsho'→PLA ; "
+    "   Indices : 'pmax'/'performance max'→PMax ; 'pla'/'shopping'/'gsho'→Shopping ; "
     "'brand'/'branded'/'sbrand'→Search Brand ; 'brex'→Brex ; "
     "'dsa'/'dynamic search'→DSA ; 'gen'/'generic'/'non brand'/'nonbrand'→Gen ; "
     "'display'→Display ; 'demand gen'/'demandgen'/'dgen'→Demand Gen ; "

@@ -130,7 +130,8 @@ def _soldes_share(current, filter_col, filter_val) -> float:
 
 
 def _build_blocks(current, prev_df, period_label, comparison,
-                  recipient: str = "", signature: str = "César") -> list:
+                  recipient: str = "", signature: str = "César",
+                  trend: str = "") -> list:
     """Construit le compte-rendu sous forme de blocs (un seul contenu, deux
     rendus possibles : texte brut ou HTML mis en forme).
 
@@ -319,11 +320,12 @@ def _build_blocks(current, prev_df, period_label, comparison,
     B.append(("text", opt.strip()))
 
     # --- Clôture ---
+    trend_txt = f" des {trend.strip()}" if trend and trend.strip() else ""
     if plural:
         B.append(("text", "Je reste dispo si vous avez la moindre question !"))
     else:
         B.append(("text", "De ton côté, comment se situe le ratio dépense vs CA, "
-                  "on reste bien dans le trend ?"))
+                  f"on reste bien dans le trend{trend_txt} ?"))
     B.append(("text", "On en reparle pendant le weekly !"))
     B.append(("text", "Belle journée,\n" + signature))
     return B
@@ -399,16 +401,18 @@ def _render_html(blocks) -> str:
 
 
 def build_email(current, prev_df, period_label, comparison,
-                recipient: str = "", signature: str = "César") -> str:
+                recipient: str = "", signature: str = "César",
+                trend: str = "") -> str:
     """Compte-rendu client en **texte brut** (édition / copier-coller simple)."""
     return _render_text(_build_blocks(current, prev_df, period_label, comparison,
-                                      recipient, signature))
+                                      recipient, signature, trend))
 
 
 def build_email_html(current, prev_df, period_label, comparison,
-                     recipient: str = "", signature: str = "César") -> str:
+                     recipient: str = "", signature: str = "César",
+                     trend: str = "") -> str:
     """Même compte-rendu en **HTML mis en forme** : tableaux bordés, total et
     en-têtes en gras, variations WoW en vert (positif) / rouge (négatif).
     À coller dans Gmail (la mise en forme est conservée)."""
     return _render_html(_build_blocks(current, prev_df, period_label, comparison,
-                                      recipient, signature))
+                                      recipient, signature, trend))

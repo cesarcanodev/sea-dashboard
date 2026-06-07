@@ -40,7 +40,7 @@ DEFAULT_TYPES = [
     ("branded", "Branded"),
     ("brex", "Brex"),
     ("dsa", "DSA"),
-    ("shopping", "PLA"), ("gsho", "PLA"), ("pla", "PLA"),
+    ("shopping", "Shopping"), ("gsho", "Shopping"), ("pla", "Shopping"),
     ("display", "Display"),
     ("discovery", "Discovery"),
     ("youtube", "Video"), ("video", "Video"),
